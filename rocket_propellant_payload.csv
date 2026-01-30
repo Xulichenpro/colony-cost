@@ -1,0 +1,11 @@
+Rocket_Name,Type,Max_Payload_LEO_kg,Propellant_Mass_kg,Gross_Liftoff_Mass_kg,Propellant_Mass_Fraction
+Falcon 9 (Expended),Reusable,22800,488400,549000,0.89
+Falcon 9 (Reusable),Reusable,17400,488400,549000,0.89
+Long March 5 (CZ-5),Expendable,25000,780000,851800,0.91
+Atlas V (551),Expendable,18800,505000,590000,0.86
+Soyuz-2.1b,Expendable,8200,280000,312000,0.90
+Ariane 5 ECA,Expendable,21000,690000,780000,0.88
+Electron,Expendable,300,11500,12500,0.92
+Starship (Estimate),Fully Reusable,150000,4600000,5000000,0.92
+Delta IV Heavy,Expendable,28790,650000,733000,0.89
+Proton-M,Expendable,23000,630000,705000,0.89
