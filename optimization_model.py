@@ -6,6 +6,15 @@ import matplotlib.pyplot as plt
 import math
 from tqdm import tqdm
 
+# pymoo imports for NSGA-II
+from pymoo.core.problem import ElementwiseProblem
+from pymoo.algorithms.moo.nsga2 import NSGA2
+from pymoo.optimize import minimize
+from pymoo.operators.crossover.sbx import SBX
+from pymoo.operators.mutation.pm import PM
+from pymoo.operators.sampling.rnd import FloatRandomSampling
+from pymoo.termination import get_termination
+
 # Import prediction logic
 from predict_launch_cost import (
     load_and_process_data as load_launch_data,
@@ -27,7 +36,31 @@ ROCKET_PAYLOAD_KG = 150_000
 SE_UNITS = 3
 SE_CAPACITY_PER_UNIT_YEAR_TONS = 179_000
 SE_TOTAL_CAPACITY_YEAR_KG = SE_UNITS * SE_CAPACITY_PER_UNIT_YEAR_TONS * 1000
-SE_ANNUAL_COST = 100_000  # Fixed annual cost for Space Elevator system
+# SE_ANNUAL_COST is now dynamic
+
+class TransportProblem(ElementwiseProblem):
+    """
+    Pymoo Problem Definition.
+    Variables:
+        x[0] = rocket_launches_per_day (Float, 0 to 10)
+    Objectives:
+        f1 = Total Cost (Billions)
+        f2 = Total Time (Years)
+    """
+    def __init__(self, model_instance):
+        self.model = model_instance
+        super().__init__(n_var=1, n_obj=2, n_ieq_constr=0, xl=0.0, xu=ROCKET_MAX_LAUNCHES_PER_DAY)
+
+    def _evaluate(self, x, out, *args, **kwargs):
+        launch_rate = x[0]
+        # Run simulation (quietly)
+        summary, _ = self.model.simulate_strategy(launch_rate, quiet=True)
+        
+        # Objectives
+        f1 = summary['Total Cost (Billions)']
+        f2 = summary['Total Duration (Years)']
+        
+        out["F"] = [f1, f2]
 
 class TransportOptimizationModel:
     def __init__(self):
@@ -44,6 +77,21 @@ class TransportOptimizationModel:
         # Fuel Price Model
         self.fuel_monthly_df, self.fuel_model, self.fuel_stats = get_historical_statistics()
         print("Models initialized successfully.")
+
+    def _get_se_annual_cost(self, year):
+        """
+        Calculate Space Elevator annual cost using an exponential decay function.
+        Cost = Base * exp(-decay * (year - start_year))
+        Assumption: Initial cost around $1.5 Million, decaying over time.
+        """
+        base_cost = 1_500_000  # 1.5 Million USD
+        decay_rate = 0.05      # 5% decay per year
+        
+        # Calculate years elapsed since operation start
+        # Note: Costs might decay from construction time, but here we assume decay from 2050
+        delta_years = year - START_YEAR
+        cost = base_cost * np.exp(-decay_rate * delta_years)
+        return cost
 
     def calculate_cost_fast(self, year, month, launches_count):
         """
@@ -71,9 +119,10 @@ class TransportOptimizationModel:
         
         return total_launch_cost
 
-    def simulate_strategy(self, rocket_launches_per_day):
+    def simulate_strategy(self, rocket_launches_per_day, quiet=False):
         """
         Simulate the transport process given a fixed daily rocket launch frequency.
+        Variable: rocket_launches_per_day (Optimization variable)
         """
         current_year = START_YEAR
         current_month = 1
@@ -86,43 +135,51 @@ class TransportOptimizationModel:
         # History log
         history = []
         
-        # Monthly capacities (SE is constant per year, but monthly varies by days? No, assume flat monthly rate for SE)
+        # Determine fixed monthly capacity for SE (Physical constraint)
         se_monthly_capacity = SE_TOTAL_CAPACITY_YEAR_KG / 12
-        se_monthly_cost = SE_ANNUAL_COST / 12
         
-        with tqdm(total=TARGET_TOTAL_CARGO_KG, desc=f"Simulating {rocket_launches_per_day}/day", leave=False) as pbar:
-            while remaining_cargo_kg > 0:
-                # 1. Determine Rocket Capacity
-                days_in_month = pd.Period(f"{current_year}-{current_month}").days_in_month
-                rocket_monthly_count = rocket_launches_per_day * days_in_month
-                rocket_monthly_capacity = rocket_monthly_count * ROCKET_PAYLOAD_KG
+        # Conditional Progress Bar
+        iterator_wrapper = range(1000000) # Dummy large number
+        if not quiet:
+             pbar = tqdm(total=TARGET_TOTAL_CARGO_KG, desc=f"Simulating {rocket_launches_per_day:.2f}/day", leave=False)
+        
+        while remaining_cargo_kg > 0:
+            # 0. Get Dynamic SE Cost for this year
+            se_annual_cost = self._get_se_annual_cost(current_year)
+            se_monthly_cost = se_annual_cost / 12
+
+            # 1. Determine Rocket Capacity
+            days_in_month = pd.Period(f"{current_year}-{current_month}").days_in_month
+            rocket_monthly_count = rocket_launches_per_day * days_in_month
+            rocket_monthly_capacity = rocket_monthly_count * ROCKET_PAYLOAD_KG
+            
+            # 2. Allocation Strategy
+            # Use SE first (Optimization rule: SE is generally cheaper and cleaner)
+            take_se = min(remaining_cargo_kg, se_monthly_capacity)
+            remaining_cargo_after_se = remaining_cargo_kg - take_se
+            
+            take_rocket = 0
+            rocket_cost = 0
+            
+            if remaining_cargo_after_se > 0 and rocket_monthly_capacity > 0:
+                take_rocket = min(remaining_cargo_after_se, rocket_monthly_capacity)
                 
-                # 2. Allocation Strategy
-                # Use SE first (cheaper)
-                take_se = min(remaining_cargo_kg, se_monthly_capacity)
-                remaining_cargo_after_se = remaining_cargo_kg - take_se
+                # Calculate actual launches needed
+                needed_launches = math.ceil(take_rocket / ROCKET_PAYLOAD_KG)
                 
-                take_rocket = 0
-                rocket_cost = 0
-                
-                if remaining_cargo_after_se > 0 and rocket_monthly_capacity > 0:
-                    take_rocket = min(remaining_cargo_after_se, rocket_monthly_capacity)
-                    
-                    # Calculate actual launches needed
-                    needed_launches = math.ceil(take_rocket / ROCKET_PAYLOAD_KG)
-                    
-                    # Calculate cost using fast function
-                    rocket_cost = self.calculate_cost_fast(current_year, current_month, needed_launches)
-                
-                # 3. Update Totals
-                transported = take_se + take_rocket
-                remaining_cargo_kg -= transported
-                total_cost += (rocket_cost + se_monthly_cost)
-                
-                total_rocket_cargo += take_rocket
-                total_se_cargo += take_se
-                
-                # 4. Log
+                # Calculate cost using fast function
+                rocket_cost = self.calculate_cost_fast(current_year, current_month, needed_launches)
+            
+            # 3. Update Totals
+            transported = take_se + take_rocket
+            remaining_cargo_kg -= transported
+            total_cost += (rocket_cost + se_monthly_cost)
+            
+            total_rocket_cargo += take_rocket
+            total_se_cargo += take_se
+            
+            # 4. Log
+            if not quiet:
                 history.append({
                     'Year': current_year,
                     'Month': current_month,
@@ -130,20 +187,25 @@ class TransportOptimizationModel:
                     'SE_Cost': se_monthly_cost,
                     'Transported_kg': transported
                 })
-                
                 pbar.update(int(transported))
-                
-                # Time increment
-                current_month += 1
-                if current_month > 12:
-                    current_month = 1
-                    current_year += 1
-                
-                if current_year > 2500: # Safety break
-                    break
-                    
-        df_history = pd.DataFrame(history)
-        total_years = len(df_history) / 12
+            
+            # Time increment
+            current_month += 1
+            if current_month > 12:
+                current_month = 1
+                current_year += 1
+            
+            if current_year > 2500: # Safety break
+                break
+
+        if not quiet:
+            pbar.close()
+            
+        # If quiet (optimization loop), history might be skipped to save memory-time, 
+        # but let's just return minimal info. 
+        # Calculating duration:
+        total_months = (current_year - START_YEAR) * 12 + (current_month - 1)
+        total_years = total_months / 12.0
         
         return {
             'Strategy (Launches/Day)': rocket_launches_per_day,
@@ -152,21 +214,53 @@ class TransportOptimizationModel:
             'Finish Year': current_year,
             'Rocket Cargo (%)': (total_rocket_cargo / TARGET_TOTAL_CARGO_KG) * 100,
             'SE Cargo (%)': (total_se_cargo / TARGET_TOTAL_CARGO_KG) * 100
-        }, df_history
+        }, pd.DataFrame(history)
 
 
     def run_optimization(self):
-        print("Starting Optimization Simulation...")
+        print("Starting NSGA-II Optimization...")
+        
+        problem = TransportProblem(self)
+        
+        algorithm = NSGA2(
+            pop_size=50,
+            n_offsprings=20,
+            sampling=FloatRandomSampling(),
+            crossover=SBX(prob=0.9, eta=15),
+            mutation=PM(prob=0.1, eta=20),
+            eliminate_duplicates=True
+        )
+        
+        termination = get_termination("n_gen", 40)
+        
+        res = minimize(
+            problem,
+            algorithm,
+            termination,
+            seed=1,
+            save_history=True,
+            verbose=True
+        )
+        
+        print(f"Optimization finished. Time: {res.exec_time:.2f}s")
+        
+        # Process Results
+        # res.X are the variable values (Launch Rate)
+        # res.F are the objective values (Cost, Time)
+        
         summary_results = []
+        # Sort by Cost for better visualization
+        sorted_indices = np.argsort(res.F[:, 0])
         
-        # Try strategies from 0 to 10 launches per day
-        # We can also try float values if we interpret average launches/day, but integer is fine for discrete rockets.
-        strategies = range(0, ROCKET_MAX_LAUNCHES_PER_DAY + 1)
-        
-        for n_launch in strategies:
-            # If 0 launches, check if SE can handle it (Yes, but slow)
-            summary, _ = self.simulate_strategy(n_launch)
-            summary_results.append(summary)
+        for idx in sorted_indices:
+            launch_rate = res.X[idx][0]
+            cost = res.F[idx][0]
+            time = res.F[idx][1]
+            summary_results.append({
+                'Strategy (Launches/Day)': launch_rate,
+                'Total Duration (Years)': time,
+                'Total Cost (Billions)': cost
+            })
             
         self.results_df = pd.DataFrame(summary_results)
         return self.results_df
@@ -176,13 +270,17 @@ def main():
     results = model.run_optimization()
     
     print("\n" + "="*80)
-    print("OPTIMIZATION RESULTS (Pareto Check)")
+    print("NSGA-II OPTIMIZATION RESULTS (Pareto Front)")
     print("="*80)
-    print(results.to_string(index=False, float_format="%.2f"))
+    print(results.to_string(index=False, float_format="%.4f"))
     
     # Identify Key Solutions
     min_cost_idx = results['Total Cost (Billions)'].idxmin()
     min_time_idx = results['Total Duration (Years)'].idxmin()
+    
+    # Simple check for Trade-off (Middle ground) - closest to normalized origin if we normalized
+    # Or just pick the median duration
+    median_idx = len(results) // 2
     
     print("\n" + "-"*40)
     print("RECOMMENDED STRATEGIES")
@@ -193,10 +291,13 @@ def main():
     
     print(f"\n2. MINIMIZE TIME Strategy:")
     print(results.iloc[min_time_idx])
+
+    print(f"\n3. BALANCED Strategy (Median):")
+    print(results.iloc[median_idx])
     
     # Export results
-    results.to_csv('optimization_results.csv', index=False)
-    print("\nFull results saved to 'optimization_results.csv'")
+    results.to_csv('optimization_results_nsga2.csv', index=False)
+    print("\nFull results saved to 'optimization_results_nsga2.csv'")
 
 if __name__ == "__main__":
     main()
