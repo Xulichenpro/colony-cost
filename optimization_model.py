@@ -129,6 +129,8 @@ class TransportOptimizationModel:
         remaining_cargo_kg = TARGET_TOTAL_CARGO_KG
         
         total_cost = 0
+        total_rocket_cost_acc = 0
+        total_se_cost_acc = 0
         total_rocket_cargo = 0
         total_se_cargo = 0
         
@@ -173,6 +175,9 @@ class TransportOptimizationModel:
             # 3. Update Totals
             transported = take_se + take_rocket
             remaining_cargo_kg -= transported
+            
+            total_rocket_cost_acc += rocket_cost
+            total_se_cost_acc += se_monthly_cost
             total_cost += (rocket_cost + se_monthly_cost)
             
             total_rocket_cargo += take_rocket
@@ -211,6 +216,8 @@ class TransportOptimizationModel:
             'Strategy (Launches/Day)': rocket_launches_per_day,
             'Total Duration (Years)': total_years,
             'Total Cost (Billions)': total_cost / 1e9,
+            'Rocket Cost Weight': total_rocket_cost_acc / total_cost if total_cost > 0 else 0,
+            'Elevator Cost Weight': total_se_cost_acc / total_cost if total_cost > 0 else 0,
             'Finish Year': current_year,
             'Rocket Cargo (%)': (total_rocket_cargo / TARGET_TOTAL_CARGO_KG) * 100,
             'SE Cargo (%)': (total_se_cargo / TARGET_TOTAL_CARGO_KG) * 100
@@ -254,13 +261,9 @@ class TransportOptimizationModel:
         
         for idx in sorted_indices:
             launch_rate = res.X[idx][0]
-            cost = res.F[idx][0]
-            time = res.F[idx][1]
-            summary_results.append({
-                'Strategy (Launches/Day)': launch_rate,
-                'Total Duration (Years)': time,
-                'Total Cost (Billions)': cost
-            })
+            # Re-simulate to get full details including weights
+            details, _ = self.simulate_strategy(launch_rate, quiet=True)
+            summary_results.append(details)
             
         self.results_df = pd.DataFrame(summary_results)
         return self.results_df
