@@ -13,6 +13,7 @@ Where:
 
 import sys
 import warnings
+import numpy as np
 
 warnings.filterwarnings('ignore')
 
@@ -39,10 +40,37 @@ from predict_fuel_price import (
 # Default Parameters
 # ==============================================================================
 DEFAULT_PAYLOAD_KG = 150_000  # 150,000 kg
-DEFAULT_N_REUSES = 20        # 20 reuses
+START_YEAR = 2050
+MAX_YEAR = 2100
+
+def get_reuse_count(year):
+    """
+    Calculate the number of rocket reuses N as a logarithmic function of year.
+    
+    N grows from 10 (in 2050) to 100 (in 2100), then stays at 100.
+    Formula: N = 10 + 90 * ln(1 + (year - 2050)) / ln(51)
+    
+    Parameters:
+    -----------
+    year : int
+        Target year
+        
+    Returns:
+    --------
+    int: Number of reuses (10 to 100)
+    """
+    if year >= MAX_YEAR:
+        return 100
+    if year <= START_YEAR:
+        return 10
+    
+    # Logarithmic growth: 10 at 2050, 100 at 2100
+    delta = year - START_YEAR
+    n = 10 + 90 * np.log(1 + delta) / np.log(51)
+    return int(round(n))
 
 
-def calculate_total_cost(year, month, payload=DEFAULT_PAYLOAD_KG, n=DEFAULT_N_REUSES, propellant_loading_ratio=0.91):
+def calculate_total_cost(year, month, payload=DEFAULT_PAYLOAD_KG, n=None, propellant_loading_ratio=0.91):
     """
     Calculates the total launch cost using the formula:
     
@@ -56,8 +84,8 @@ def calculate_total_cost(year, month, payload=DEFAULT_PAYLOAD_KG, n=DEFAULT_N_RE
         Target month (1-12)
     payload : float
         Payload mass in kg (default: 150,000)
-    n : int
-        Number of reuses (default: 20)
+    n : int or None
+        Number of reuses. If None, calculated dynamically based on year using get_reuse_count().
     propellant_loading_ratio : float
         Propellant loading ratio (default: 0.91)
     
@@ -65,6 +93,9 @@ def calculate_total_cost(year, month, payload=DEFAULT_PAYLOAD_KG, n=DEFAULT_N_RE
     --------
     dict with all calculation details
     """
+    # If n is not provided, calculate it dynamically based on year
+    if n is None:
+        n = get_reuse_count(year)
     
     # --- Get Construction Cost ($/kg) ---
     _, heavy_df = load_launch_data()
