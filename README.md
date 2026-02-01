@@ -89,6 +89,37 @@ $$ \text{Cost} = M_{\text{Load}} \times \left[ \frac{C_{\text{Mfg}}(t)}{N(t)} + 
 
 ---
 
+### 2.3 火箭事故与风险模型 (`predict_rocket_accident.py`)
+
+为了使成本和时间预估更接近现实，我们建立了一个基于历史数据的火箭事故预测模型，并将其引入成本计算。
+
+#### (1) 事故率预测模型
+*   **计算脚本**：`predict_rocket_accident.py`
+*   **算法原理**：
+    1.  **静态贝叶斯推断 (Static Bayesian Inference)**：
+        *   使用 `Space_Corrected.csv` 中最近20年的发射数据。
+        *   先验分布（Prior）：Beta(2, 200)，假设基础故障率约为 1%（基于民航与成熟航天平均水平的先验知识）。
+        *   后验分布（Posterior）：结合历史数据更新故障率 $\theta$。
+    2.  **技术成熟度衰减 (Technology Decay)**：
+        *   假设随着技术进步，事故率每年以 1% 的速度衰减。
+        *   $$ P_{\text{failure}}(t) = \theta_{\text{base}} \times (1 - 0.01)^{(t - 2024)} $$
+        *   这模拟了航天系统可靠性的长期提升趋势。
+
+#### (2) 风险与损耗对成本的影响 (`Effective Cost`)
+当考虑事故风险时，单次发射的标称成本不变，但**有效单位成本**增加。
+*   **有效荷载**：如果故障率为 $P$，则每次发射平均只有 $(1-P)$ 的货物成功送达。
+*   **风险调整后成本**：
+    $$ \text{Cost}_{\text{Effective}} = \frac{\text{Cost}_{\text{Nominal}}}{1 - P_{\text{failure}}(t)} $$
+*   这意味着为了确保单位质量的货物送达，我们必须支付额外的潜在发射费用来覆盖失败的概率。
+
+#### (3) 风险对时间的影响 (`Time Extension`)
+在固定发射日频（如10次/天）的限制下，事故不仅仅意味着金钱损失，还意味着**时间损失**。
+*   **名义运力**：$C_{\text{Nominal}} = N_{\text{Launches}} \times \text{Payload}$
+*   **有效运力**：$C_{\text{Effective}} = C_{\text{Nominal}} \times (1 - P_{\text{failure}}(t))$
+*   由于有效运力下降，为了完成同样的 $10^8$ 吨运输任务，所需的总发射次数增加，从而导致**项目总工期延长**。
+
+---
+
 ## 3. 多目标优化模型 (`optimization_model.py`)
 
 ### 3.1 优化目标
