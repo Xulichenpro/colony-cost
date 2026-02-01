@@ -1,7 +1,7 @@
 import sys
 import pandas as pd
 # Import the calculation function
-from calculate_total_cost import calculate_total_cost
+from calculate_rocket_cost import calculate_total_cost
 
 def main():
     years = [2050, 2060, 2070, 2080, 2090, 2100]
