@@ -1,2 +1,4 @@
 - Space_Corrected.csv: https://www.kaggle.com/datasets/agirlcoding/all-space-missions-from-1957
 - jet_fuel.xlsx: https://www.eia.gov/dnav/pet/pet_pri_spt_s1_d.htm
+- The Climate and Ozone Impacts of Black Carbon Emissions From Global Rocket Launches: https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2021JD036373 ；https://research.noaa.gov/projected-increase-in-space-travel-may-damage-ozone-layer/
+- The environmental impact of emissions from space launches: A comprehensive review：https://www.sciencedirect.com/science/article/pii/S0959652620302560
