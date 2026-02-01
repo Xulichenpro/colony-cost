@@ -109,20 +109,132 @@ class TransportOptimizationModel:
         self.fuel_monthly_df, self.fuel_model, self.fuel_stats = get_historical_statistics()
         print("Models initialized successfully.")
 
-    def _get_se_annual_cost(self, year):
+    # ==============================================================================
+    # Space Elevator Cost Constants (from calculate_elevator_cost.py)
+    # ==============================================================================
+    # Physical constants
+    G0 = 9.81               # Earth surface gravity (m/s²)
+    R_E = 6.371e6           # Earth radius (m)
+    OMEGA = 2 * math.pi / 86400  # Earth's angular velocity (rad/s)
+    H_ELEVATOR = 35786e3    # Space elevator height (m)
+    
+    # Economic constants
+    NUM_ELEVATORS = 3
+    C_ELEVATOR_LOW = 10e9 * 10       # Lower bound: $100B per elevator
+    C_ELEVATOR_HIGH = 20e9 * 10      # Upper bound: $200B per elevator
+    # Use average for optimization
+    C_ELEVATOR_AVG = (C_ELEVATOR_LOW + C_ELEVATOR_HIGH) / 2  # $150B per elevator
+    TOTAL_TRANSPORT_Q = 1e11        # Total transport quantity (kg) - 100 million tons
+    ETA = 0.8                       # Energy conversion efficiency
+    ELECTRIC_PRICE = 0.15           # Electricity price ($/kWh)
+    OP_COST_INITIAL_RATIO = 0.01    # 1% of elevator construction cost
+    OP_COST_DECAY_RATE = 0.05       # 5% annual decay
+    
+    # Lunar Tug constants
+    M_PAYLOAD_TUG = 1e5             # 100 tons per tug
+    C_TUG_BUILD_INITIAL = 5000e4    # $50M initial tug cost
+    DELTA_V_CORRECTED = 1640        # 1.64 km/s
+    I_SP_CORRECTED = 450            # LH2/LOX engine Isp (s)
+    C_FUEL = 2.88                   # LH2 price ($/kg)
+    TUG_COST_DECAY_RATE = 0.07      # 7% annual decay
+    
+    def _calculate_equivalent_gravity(self):
+        """Calculate equivalent gravitational acceleration (g_avg)"""
+        grav_term = self.G0 * self.R_E * self.H_ELEVATOR / (self.R_E + self.H_ELEVATOR)
+        centri_term = self.OMEGA**2 * (self.R_E * self.H_ELEVATOR + (self.H_ELEVATOR**2)/2)
+        g_avg = (grav_term - centri_term) / self.H_ELEVATOR
+        return g_avg
+    
+    def _calculate_electric_cost_per_kg(self):
+        """Calculate electricity cost per kg for space elevator transport"""
+        g_avg = self._calculate_equivalent_gravity()
+        work_per_kg = g_avg * self.H_ELEVATOR  # Work to lift 1kg (J)
+        energy_per_kg_j = work_per_kg / self.ETA
+        energy_per_kg_kwh = energy_per_kg_j / 3.6e6
+        electric_cost_per_kg = energy_per_kg_kwh * self.ELECTRIC_PRICE
+        return electric_cost_per_kg
+    
+    def _calculate_exponential_decay(self, initial_value, decay_rate, years_since_base):
+        """Calculate exponential decay value over time"""
+        if years_since_base <= 0:
+            return initial_value
+        return initial_value * math.exp(-decay_rate * years_since_base)
+    
+    def _calculate_tug_cost_per_kg(self, years_since_base, target_year):
         """
-        Calculate Space Elevator annual cost using an exponential decay function.
-        Cost = Base * exp(-decay * (year - start_year))
-        Assumption: Initial cost around $1.5 Million, decaying over time.
+        Calculate lunar tug cost per kg with exponential decay and dynamic reuse count.
         """
-        base_cost = 1_500_000  # 1.5 Million USD
-        decay_rate = 0.05      # 5% decay per year
+        # Get dynamic reuse count based on year
+        n_reuse = get_reuse_count(target_year)
         
-        # Calculate years elapsed since operation start
-        # Note: Costs might decay from construction time, but here we assume decay from 2050
-        delta_years = year - START_YEAR
-        cost = base_cost * np.exp(-decay_rate * delta_years)
-        return cost
+        # Apply exponential decay to tug construction cost
+        tug_build_current = self._calculate_exponential_decay(
+            self.C_TUG_BUILD_INITIAL, self.TUG_COST_DECAY_RATE, years_since_base
+        )
+        # Amortized tug construction cost per launch
+        tug_build_amortized = tug_build_current / n_reuse
+        # Calculate fuel mass using Tsiolkovsky equation
+        exp_term = math.exp(self.DELTA_V_CORRECTED / (self.G0 * self.I_SP_CORRECTED))
+        fuel_mass_per_tug = self.M_PAYLOAD_TUG * (exp_term - 1)
+        # Fuel cost per tug launch
+        fuel_cost_per_tug = fuel_mass_per_tug * self.C_FUEL
+        # Total cost per tug launch
+        total_tug_cost = tug_build_amortized + fuel_cost_per_tug
+        # Cost per kg payload
+        tug_cost_per_kg = total_tug_cost / self.M_PAYLOAD_TUG
+        
+        return tug_cost_per_kg, n_reuse
+    
+    def _calculate_operational_cost_for_year(self, elevator_construction_cost, year):
+        """Calculate annual operational cost with exponential decay for a specific year"""
+        years_since_base = year - START_YEAR
+        initial_op_cost = elevator_construction_cost * self.OP_COST_INITIAL_RATIO
+        current_op_cost_annual = self._calculate_exponential_decay(
+            initial_op_cost, self.OP_COST_DECAY_RATE, years_since_base
+        )
+        return current_op_cost_annual
+    
+    def _get_se_cost_per_kg(self, year, cargo_kg):
+        """
+        Calculate Space Elevator cost per kg based on calculate_elevator_cost.py logic.
+        
+        Components:
+        1. Elevator construction cost (amortized over total transport quantity)
+        2. Operational cost (annual, decaying exponentially)
+        3. Electricity cost (per kg)
+        4. Tug cost (construction + fuel, with decay)
+        
+        Returns cost per kg for the given year.
+        """
+        years_since_base = year - START_YEAR
+        
+        # 1. Elevator construction cost per kg (amortized over total mission)
+        total_elevator_cost = self.NUM_ELEVATORS * self.C_ELEVATOR_AVG
+        elevator_cost_per_kg = total_elevator_cost / self.TOTAL_TRANSPORT_Q
+        
+        # 2. Operational cost per kg for this year
+        annual_op_cost = self._calculate_operational_cost_for_year(total_elevator_cost, year)
+        # Approximate: spread annual op cost over SE annual capacity
+        op_cost_per_kg = annual_op_cost / SE_TOTAL_CAPACITY_YEAR_KG if SE_TOTAL_CAPACITY_YEAR_KG > 0 else 0
+        
+        # 3. Electricity cost per kg
+        elec_cost_per_kg = self._calculate_electric_cost_per_kg()
+        
+        # 4. Tug cost per kg
+        tug_cost_per_kg, n_reuse = self._calculate_tug_cost_per_kg(years_since_base, year)
+        
+        # Total cost per kg
+        total_cost_per_kg = elevator_cost_per_kg + op_cost_per_kg + elec_cost_per_kg + tug_cost_per_kg
+        
+        return total_cost_per_kg
+    
+    def _get_se_monthly_cost(self, year, cargo_kg):
+        """
+        Calculate Space Elevator monthly cost for a given cargo amount.
+        Uses the cost per kg model from calculate_elevator_cost.py.
+        """
+        cost_per_kg = self._get_se_cost_per_kg(year, cargo_kg)
+        return cargo_kg * cost_per_kg
 
     def calculate_cost_fast(self, year, month, launches_count):
         """
@@ -178,10 +290,6 @@ class TransportOptimizationModel:
              pbar = tqdm(total=TARGET_TOTAL_CARGO_KG, desc=f"Simulating {rocket_launches_per_day:.2f}/day", leave=False)
         
         while remaining_cargo_kg > 0:
-            # 0. Get Dynamic SE Cost for this year
-            se_annual_cost = self._get_se_annual_cost(current_year)
-            se_monthly_cost = se_annual_cost / 12
-
             # 1. Determine Rocket Capacity
             days_in_month = pd.Period(f"{current_year}-{current_month}").days_in_month
             rocket_monthly_count = rocket_launches_per_day * days_in_month
@@ -204,7 +312,10 @@ class TransportOptimizationModel:
                 # Calculate cost using fast function
                 rocket_cost = self.calculate_cost_fast(current_year, current_month, needed_launches)
             
-            # 3. Update Totals
+            # 3. Calculate SE cost based on cargo transported (using new cost model)
+            se_monthly_cost = self._get_se_monthly_cost(current_year, take_se) if take_se > 0 else 0
+            
+            # 4. Update Totals
             transported = take_se + take_rocket
             remaining_cargo_kg -= transported
             
