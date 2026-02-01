@@ -25,13 +25,13 @@
 3.  **预测模型**：火箭制造成本、燃料价格及太空电梯运营成本均随时间动态变化。
 
 ## 2. 火箭发射成本计算 (Rocket Launch Cost)
-单次发射的总成本通过 `calculate_total_cost.py` 计算，公式如下：
+单次发射的总成本通过 `calculate_rocket_cost.py` 计算，公式如下：
 
 $$ \text{Cost} = M_{load} \times \left[ \frac{C_{mfg}}{N} + R_{prop} \times (0.3 \times P_{fuel} + 0.7 \times P_{ox}) + M_{maint} \right] $$
 
 **参数解释**：
 *   **$C_{mfg}$ (Construction Cost)**: 火箭制造成本 ($/kg)。基于历史数据（含SpaceX数据）采用指数衰减模型预测，随技术成熟逐年降低。
-*   **$N$ (Reuses)**: 火箭复用次数，默认为 20 次。这是降低成本的关键因素。
+*   **$N$ (Reuses)**: 火箭复用次数。
 *   **$P_{fuel}$ (Fuel Price)**: 燃料价格 ($/kg)。基于历史数据通过统计模型预测。
 *   **$R_{prop}$ (Propellant Ratio)**: 推进剂占火箭总重的比例，取 91%。
 *   **$P_{ox}$**: 氧化剂等其他推进剂成本，视为常数 ($0.15/kg)。
