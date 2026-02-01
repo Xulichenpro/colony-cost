@@ -38,6 +38,37 @@ SE_CAPACITY_PER_UNIT_YEAR_TONS = 179_000
 SE_TOTAL_CAPACITY_YEAR_KG = SE_UNITS * SE_CAPACITY_PER_UNIT_YEAR_TONS * 1000
 # SE_ANNUAL_COST is now dynamic
 
+# ==============================================================================
+# Dynamic Reuse Count (Logarithmic Growth)
+# ==============================================================================
+MAX_YEAR_FOR_REUSE = 2100
+
+def get_reuse_count(year):
+    """
+    Calculate the number of rocket reuses N as a logarithmic function of year.
+    
+    N grows from 10 (in 2050) to 100 (in 2100), then stays at 100.
+    Formula: N = 10 + 90 * ln(1 + (year - 2050)) / ln(51)
+    
+    Parameters:
+    -----------
+    year : int
+        Target year
+        
+    Returns:
+    --------
+    int: Number of reuses (10 to 100)
+    """
+    if year >= MAX_YEAR_FOR_REUSE:
+        return 100
+    if year <= START_YEAR:
+        return 10
+    
+    # Logarithmic growth: 10 at 2050, 100 at 2100
+    delta = year - START_YEAR
+    n = 10 + 90 * np.log(1 + delta) / np.log(51)
+    return int(round(n))
+
 class TransportProblem(ElementwiseProblem):
     """
     Pymoo Problem Definition.
@@ -106,7 +137,8 @@ class TransportOptimizationModel:
         fuel_price = predict_fuel_price_value(year, month, self.fuel_monthly_df, self.fuel_model, self.fuel_stats)
         
         # Formula parameters (from calculate_rocket_cost.py)
-        n = 20
+        # N is now dynamic based on year
+        n = get_reuse_count(year)
         propellant_loading_ratio = 0.91
         payload = ROCKET_PAYLOAD_KG
         
