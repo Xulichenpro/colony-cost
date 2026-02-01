@@ -105,7 +105,7 @@ class TransportOptimizationModel:
         construction_cost = predict_launch_cost(year, self.launch_model_params, self.heavy_df)
         fuel_price = predict_fuel_price_value(year, month, self.fuel_monthly_df, self.fuel_model, self.fuel_stats)
         
-        # Formula parameters (from calculate_total_cost.py)
+        # Formula parameters (from calculate_rocket_cost.py)
         n = 20
         propellant_loading_ratio = 0.91
         payload = ROCKET_PAYLOAD_KG
