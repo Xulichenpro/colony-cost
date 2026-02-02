@@ -60,6 +60,10 @@ $$ \text{Total Cost} = C_{\text{Build}} + C_{\text{Op}} + C_{\text{Elec}} + C_{\
 单次发射的总成本计算如下：
 $$ \text{Cost} = M_{\text{Load}} \times \left[ \frac{C_{\text{Mfg}}(t)}{N(t)} + R_{\text{Prop}} \times (0.3 P_{\text{Fuel}}(t) + 0.7 P_{\text{Ox}}) + 0.01 C_{\text{Mfg}}(t) \right] $$
 
+- 需要简单说明的参数：
+    1. 常数0.3 ： 火箭燃料中的燃油占比
+    2. 常数0.7 ： 火箭燃料中的液氧占比
+
 ### 2.2 详细组件说明
 
 *   **$C_{\text{Mfg}}(t)$ (制造成本)**：
