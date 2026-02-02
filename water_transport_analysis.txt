@@ -1,0 +1,43 @@
+==================================================
+GLOBAL PARAMETER: Total Cargo Target = 100,000,000 Tons
+==================================================
+
+--- Scenario: Min Time ---
+PART 1: Cargo Transport (100 Million Tons)
+      Completed Date: 2142-04
+      Duration: 92.2500 Years
+      Cost: $1209.9269 Billion
+PART 2: Water Transport (180,416 m^3)
+  > Rocket Water Transport:
+      Cost: $0.8599 Billion
+      Time: 0.3333 Years
+  > Elevator Water Transport:
+      Cost: $1.5177 Billion
+      Time: 0.4167 Years
+
+--- Scenario: Min Cost ---
+PART 1: Cargo Transport (100 Million Tons)
+      Completed Date: 2234-06
+      Duration: 184.4167 Years
+      Cost: $1016.8120 Billion
+PART 2: Water Transport (180,416 m^3)
+  > Rocket Water Transport:
+      Cost: $0.9047 Billion
+      Time: 0.3333 Years
+  > Elevator Water Transport:
+      Cost: $1.5012 Billion
+      Time: 0.4167 Years
+
+--- Scenario: Balanced ---
+PART 1: Cargo Transport (100 Million Tons)
+      Completed Date: 2170-08
+      Duration: 120.5833 Years
+      Cost: $1090.5322 Billion
+PART 2: Water Transport (180,416 m^3)
+  > Rocket Water Transport:
+      Cost: $0.8385 Billion
+      Time: 0.3333 Years
+  > Elevator Water Transport:
+      Cost: $1.5050 Billion
+      Time: 0.4167 Years
+
