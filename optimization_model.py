@@ -38,6 +38,9 @@ SE_CAPACITY_PER_UNIT_YEAR_TONS = 179_000
 SE_TOTAL_CAPACITY_YEAR_KG = SE_UNITS * SE_CAPACITY_PER_UNIT_YEAR_TONS * 1000
 # SE_ANNUAL_COST is now dynamic
 
+WATER_VOLUME_M3 = 180416
+WATER_MASS_KG = WATER_VOLUME_M3 * 1000
+
 # ==============================================================================
 # Dynamic Reuse Count (Logarithmic Growth)
 # ==============================================================================
@@ -235,6 +238,73 @@ class TransportOptimizationModel:
         """
         cost_per_kg = self._get_se_cost_per_kg(year, cargo_kg)
         return cargo_kg * cost_per_kg
+
+    def calculate_water_transport_metrics(self, start_year, start_month):
+        """
+        Calculate cost and time to transport water after main cargo is done.
+        """
+        # Common
+        water_mass = WATER_MASS_KG
+        
+        # Scenario A: Rocket Only
+        # Assume max launches 10/day
+        rocket_launches_day = 10
+        r_current_year = start_year
+        r_current_month = start_month
+        r_remaining = water_mass
+        r_total_cost = 0
+        r_months_elapsed = 0
+        
+        while r_remaining > 0:
+             days = pd.Period(f"{r_current_year}-{r_current_month}").days_in_month
+             capacity = rocket_launches_day * days * ROCKET_PAYLOAD_KG
+             transport = min(r_remaining, capacity)
+             # Ceiling launch count
+             launches = math.ceil(transport / ROCKET_PAYLOAD_KG)
+             
+             cost = self.calculate_cost_fast(r_current_year, r_current_month, launches)
+             r_total_cost += cost
+             r_remaining -= transport
+             r_months_elapsed += 1
+             
+             r_current_month += 1
+             if r_current_month > 12:
+                 r_current_month = 1
+                 r_current_year += 1
+                 
+        r_duration_years = r_months_elapsed / 12.0
+        
+        # Scenario B: Elevator Only
+        # Assume 3 elevators (standard capacity)
+        se_current_year = start_year
+        se_current_month = start_month
+        se_remaining = water_mass
+        se_total_cost = 0
+        se_months_elapsed = 0
+        
+        se_monthly_capacity = SE_TOTAL_CAPACITY_YEAR_KG / 12
+        
+        while se_remaining > 0:
+            transport = min(se_remaining, se_monthly_capacity)
+            cost = self._get_se_monthly_cost(se_current_year, transport)
+            
+            se_total_cost += cost
+            se_remaining -= transport
+            se_months_elapsed += 1
+            
+            se_current_month += 1
+            if se_current_month > 12:
+                se_current_month = 1
+                se_current_year += 1
+                
+        se_duration_years = se_months_elapsed / 12.0
+        
+        return {
+            "Water_Rocket_Cost_B": r_total_cost / 1e9,
+            "Water_Rocket_Time_Y": r_duration_years,
+            "Water_Elevator_Cost_B": se_total_cost / 1e9,
+            "Water_Elevator_Time_Y": se_duration_years
+        }
 
     def calculate_cost_fast(self, year, month, launches_count):
         """
@@ -444,6 +514,73 @@ def main():
     # Export results
     results.to_csv('optimization_results_nsga2.csv', index=False)
     print("\nFull results saved to 'optimization_results_nsga2.csv'")
+
+    # ==============================================================================
+    # Water Transport Calculation (Post-Cargo)
+    # ==============================================================================
+    print("\n" + "="*80)
+    print("CALCULATING WATER TRANSPORT SCENARIOS (180,416 m^3)")
+    print("="*80)
+    
+    scenarios = [
+        ("Min Time", results.iloc[min_time_idx]),
+        ("Min Cost", results.iloc[min_cost_idx]),
+        ("Balanced", results.iloc[median_idx])
+    ]
+    
+    water_results = []
+    
+    for label, row in scenarios:
+        # Calculate start time for water transport (end of cargo)
+        total_months = int(round(row['Total Duration (Years)'] * 12))
+        water_start_year = START_YEAR + total_months // 12
+        water_start_month = 1 + (total_months % 12)
+        
+        metrics = model.calculate_water_transport_metrics(water_start_year, water_start_month)
+        
+        # Combine info
+        start_year_str = f"{water_start_year}-{water_start_month:02d}"
+        
+        res_dict = {
+            "Scenario": label,
+            "Cargo_Strategy_Launches_Per_Day": row['Strategy (Launches/Day)'],
+            "Cargo_Duration_Years": row['Total Duration (Years)'],
+            "Cargo_Cost_Billions": row['Total Cost (Billions)'],
+            "Water_Start_Date": start_year_str,
+            "Water_Rocket_Cost_B": metrics["Water_Rocket_Cost_B"],
+            "Water_Rocket_Duration_Years": metrics["Water_Rocket_Time_Y"],
+            "Water_Elevator_Cost_B": metrics["Water_Elevator_Cost_B"],
+            "Water_Elevator_Duration_Years": metrics["Water_Elevator_Time_Y"]
+        }
+        water_results.append(res_dict)
+
+    water_df = pd.DataFrame(water_results)
+    
+    # Save to file
+    # Save to file
+    with open('water_transport_analysis.txt', 'w') as f:
+        # Write Global Parameters
+        f.write("==================================================\n")
+        f.write(f"GLOBAL PARAMETER: Total Cargo Target = {TARGET_TOTAL_CARGO_KG/1000:,.0f} Tons\n")
+        f.write("==================================================\n\n")
+
+        for res in water_results:
+            f.write(f"--- Scenario: {res['Scenario']} ---\n")
+            f.write(f"PART 1: Cargo Transport (100 Million Tons)\n")
+            f.write(f"      Completed Date: {res['Water_Start_Date']}\n")
+            f.write(f"      Duration: {res['Cargo_Duration_Years']:.4f} Years\n")
+            f.write(f"      Cost: ${res['Cargo_Cost_Billions']:.4f} Billion\n")
+            f.write(f"PART 2: Water Transport (180,416 m^3)\n")
+            f.write(f"  > Rocket Water Transport:\n")
+            f.write(f"      Cost: ${res['Water_Rocket_Cost_B']:.4f} Billion\n")
+            f.write(f"      Time: {res['Water_Rocket_Duration_Years']:.4f} Years\n")
+            f.write(f"  > Elevator Water Transport:\n")
+            f.write(f"      Cost: ${res['Water_Elevator_Cost_B']:.4f} Billion\n")
+            f.write(f"      Time: {res['Water_Elevator_Duration_Years']:.4f} Years\n")
+            f.write("\n")
+            
+    print(water_df.to_string(index=False))
+    print("\nWater transport analysis saved to 'water_transport_analysis.txt'")
 
 if __name__ == "__main__":
     main()
